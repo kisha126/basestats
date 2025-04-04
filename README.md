@@ -67,6 +67,22 @@ categories.
 
 - R version must be \>4.2.0
 
+# Getting Started
+
+1.  Get the code: Clone or download this repository to your local
+    machine.
+
+    ``` bash
+    git clone https://github.com/kisha126/basestats.git
+    cd basestats # Optional
+    ```
+
+2.  **Use in R:** Navigate your R session’s working directory to outside
+    the `basestats` folder (or adjust the path in `box::use`
+    accordingly). You can then load modules using `box::use()`. I wanna
+    recommend you to not use `setwd` to set up a project with this
+    repository.
+
 ## Project Structure
 
 Here is the project structure:
