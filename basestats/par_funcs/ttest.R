@@ -3,9 +3,9 @@ box::use(
     rlang[
         quo, expr, eval_tidy, syms
     ],
-    dplyr[group_modify, ungroup, pull, select],
-    purrr[map, map_dbl, map_dfr, pmap, iwalk],
-    stats[na.omit, t.test],
+    dplyr[group_modify, ungroup, pull, select, group_vars],
+    purrr[map, map_dbl, map_dfr, pmap, iwalk, map_chr],
+    stats[na.omit, t.test, sd],
     tidyselect[where, eval_select, everything],
     tidyr[expand_grid, pivot_wider, unnest],
     tabhelpers[table_default, table_summary],
@@ -99,11 +99,36 @@ t_test <- function(data, ..., formula = NULL, alternative = "two.sided",
 
                         m <- expr(diff_mean(!!!.var)) |> eval_tidy(data = data)
 
+                        cohen_d <- if (paired) {
+                            .var <- syms(.var)
+                            diff_vals <- expr(!!.var[[1]] - !!.var[[2]]) |>
+                                eval_tidy(data = .x)
+                            mean(diff_vals) / sd(diff_vals)
+                        } else {
+                            x1 <- eval_tidy(expr(pull(.x, !!.var[[1]])))
+                            x2 <- eval_tidy(expr(pull(.x, !!.var[[2]])))
+                            m1 <- mean(x1)
+                            m2 <- mean(x2)
+                            s1 <- sd(x1)
+                            s2 <- sd(x2)
+                            n1 <- length(x1)
+                            n2 <- length(x2)
+
+                            if (var.equal) {
+                                pooled_sd <- sqrt(((n1 - 1) * s1^2 + (n2 - 1) * s2^2) / (n1 + n2 - 2))
+                                (m1 - m2) / pooled_sd
+                            } else {
+                                (m1 - m2) / sqrt((s1^2 + s2^2) / 2)
+                            }
+                        }
+
+
                         tibble(
                             x = as.character(.var[[1]]),
                             y = as.character(.var[[2]]),
                             diff_mean = m,
                             true_mu_diff = mu_diff,
+                            cohen = cohen_d,
                             alternative = test$alternative,
                             df = unname(test$parameter),
                             statistics = unname(test$statistic),
@@ -136,11 +161,14 @@ t_test <- function(data, ..., formula = NULL, alternative = "two.sided",
                         )
 
                         m <- mean(x)
+                        sd_x <- sd(x)
 
                         tibble(
                             x = var_name,
                             mean = m,
+                            sd = sd_x,
                             true_mu = mu_vec[var_name],
+                            cohen = (mean - true_mu) / sd,
                             alternative = test$alternative,
                             df = unname(test$parameter),
                             statistics = unname(test$statistic),
@@ -154,7 +182,13 @@ t_test <- function(data, ..., formula = NULL, alternative = "two.sided",
         test_type <- "One-Sample"
     }
 
-    res <- list(out = out, test_type = test_type, combine = combine, paired = paired)
+    res <- list(
+        out = out,
+        test_type = test_type,
+        combine = combine,
+        paired = paired,
+        group_varnames = group_vars(data)
+    )
     class(res) <- c("basestats", "ttest")
     res
 }
@@ -178,9 +212,13 @@ print.ttest <- function(x, ...) {
         cli$style_bold() |>
         cli$cat_line("\n\n")
 
+    # Check if we have group data - look for non-numeric columns that aren't part of the test variables
+    has_groups <- !is.null(x$group_varnames)
+
     data |>
         pmap(list) |>
         iwalk(function (res, i) {
+            # Create base comparison text
             if (test_type == "One-Sample") {
                 var1 <- res$x
                 true_mu <- res$true_mu
@@ -194,10 +232,29 @@ print.ttest <- function(x, ...) {
                 comparison_text <- glue::glue("{i}. {var1}")
             }
 
+            # Add group information if available
+            if (has_groups) {
+                # Extract group information
+                group_info <- setdiff(names(res), c("x", "y", "mean", "sd", "true_mu", "diff_mean",
+                                                   "true_mu_diff", "cohen", "alternative", "df",
+                                                   "statistics", "pvals"))
+
+                # Format group information
+                group_str <- ""
+                if (length(group_info) > 0) {
+                    group_values <- map_chr(group_info, ~paste(.x, "=", res[[.x]]))
+                    group_str <- paste(" when", cli$style_italic(paste(group_values, collapse = ", ")))
+                }
+
+                # Add group information to comparison text
+                comparison_text <- paste0(comparison_text, group_str)
+            }
+
             alt_text <- switch(res$alternative,
                                "two.sided" = "different from",
                                "less" = "less than",
                                "greater" = "greater than")
+            cohen_d <- res$cohen
 
             cat(comparison_text, "\n")
 
@@ -229,11 +286,12 @@ print.ttest <- function(x, ...) {
             cat("\n\n")
             table_summary(
                 tibble(
-                    x = c("Alternative Hypothesis", "True Population", "Estimate"),
+                    x = c("Alternative Hypothesis", "True Population", "Estimate", "Cohen's d"),
                     y = c(
                         paste(alt_text, res$true_mu),
                         res$true_mu,
-                        round(ifelse(combine, res$diff_mean, res$mean), digits = 3)
+                        round(ifelse(combine, res$diff_mean, res$mean), digits = 3),
+                        round(cohen_d, digits = 3)
                     )
                 ),
                 title = "Other Information",
@@ -242,5 +300,90 @@ print.ttest <- function(x, ...) {
             )
         })
 }
+# print.ttest <- function(x, ...) {
+#     data <- x$out
+#     test_type <- x$test_type
+#     paired <- x$paired
+#     combine <- x$combine
+#
+#     if (test_type == "One-Sample") {
+#         title <- "One-Sample t-test"
+#     } else if (test_type == "Two-Sample" && paired) {
+#         title <- "2 Paired Sample t-test"
+#     } else {
+#         title <- "2 Independent Sample t-test"
+#     }
+#
+#     cat("\n")
+#     cli$rule(center = title) |>
+#         cli$style_bold() |>
+#         cli$cat_line("\n\n")
+#
+#     data |>
+#         pmap(list) |>
+#         iwalk(function (res, i) {
+#             if (test_type == "One-Sample") {
+#                 var1 <- res$x
+#                 true_mu <- res$true_mu
+#                 comparison_text <- glue::glue("{i}. {var1} (μ = {true_mu})")
+#             } else if (combine) {
+#                 var1 <- res$x
+#                 var2 <- res$y
+#                 comparison_text <- glue::glue("{i}. {var1} vs. {var2}")
+#             } else {
+#                 var1 <- res$x
+#                 comparison_text <- glue::glue("{i}. {var1}")
+#             }
+#
+#             alt_text <- switch(res$alternative,
+#                                "two.sided" = "different from",
+#                                "less" = "less than",
+#                                "greater" = "greater than")
+#             cohen_d <- res$cohen
+#
+#             cat(comparison_text, "\n")
+#
+#             result_tbl <- tibble(
+#                 t_statistic = res$statistics,
+#                 `p-value` = res$pvals
+#             )
+#
+#             cat("\n\n")
+#             table_default(
+#                 result_tbl,
+#                 center_table = TRUE,
+#                 n_space = 3,
+#                 style_columns = list(
+#                     "p-value" = function (ctx) {
+#                         val <- as.numeric(ctx$formatted_value)
+#                         if (val < 0.05 & val >= 0.001) {
+#                             cli$col_red(val)
+#                         } else if (val < 0.001) {
+#                             rep_txt <- replace(val, val < 0.001, "<0.001")
+#                             cli$style_bold(rep_txt)
+#                         } else {
+#                             cli$style_italic(val)
+#                         }
+#                     }
+#                 ),
+#                 title = "Test Result"
+#             )
+#             cat("\n\n")
+#             table_summary(
+#                 tibble(
+#                     x = c("Alternative Hypothesis", "True Population", "Estimate", "Cohen's d"),
+#                     y = c(
+#                         paste(alt_text, res$true_mu),
+#                         res$true_mu,
+#                         round(ifelse(combine, res$diff_mean, res$mean), digits = 3),
+#                         round(cohen_d, digits = 3)
+#                     )
+#                 ),
+#                 title = "Other Information",
+#                 center_table = TRUE,
+#                 style = list(sep = "  :  ")
+#             )
+#         })
+# }
 
 box::register_S3_method("print", "ttest")
