@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
 
 ![alt text](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-A collection of hypothesis test functions implemented in R, designed to be used directly as modules rather than a traditional package. This project focuses on providing clear implementations and demonstrating modular code organization with `box`.
+A collection of hypothesis test functions implemented in R, extended them to be analogous and seamless to `tidyverse`-suite frame. The `basestats` is designed and organized to be used directly as modules, similar to Python's module system, rather than a traditional package. This module is a byproduct of `box` API, providing modular programming implementations and demonstrating modular code organization with `box`.
 
 ## Overview
 
@@ -66,7 +66,7 @@ The functions are currently organized, e.g. into parametric test functions (`par
 
 2.  **Use in R:** Navigate your R session's working directory to outside the `basestats` folder (or adjust the path in `box::use` accordingly). You can then load modules using `box::use()`. I wanna recommend you to not use `setwd` to set up a project with this repository.
 
-## Project Structure
+## Module Structure
 
 Here is the project structure:
 
@@ -76,11 +76,12 @@ Here is the project structure:
 │   ├── __init__.R
 │   ├── npar_funcs
 │   │   ├── __init__.R
-│   │   └── wilcoxtest.R
+│   │   └── <bunch of files and scripts>
 │   ├── par_funcs
 │   │   ├── __init__.R
-│   │   └── ttest.R
-│   └── utils.R
+│   │   └── <bunch of files and scripts>
+│   └── <bunch of files and scripts>
+├── <bunch of files and scripts>
 ├── README.md
 └── README.rmd
 ```
@@ -89,7 +90,9 @@ Here is the project structure:
 
 ## Example Usage
 
-Since `basestats` is not a package, but rather a structural directory, load the directory as a module with `bs` as an alias of it, and don't forget the `./` as the prefix. Ensure your R working directory is set correctly relative to the `basestats` directory. If `basestats` is a subdirectory of your current working directory, use `bs = ./basestats`.
+Since `basestats` is not a package, but rather a structural directory, load the directory as a module with `bs` as an alias of it, and don't forget the `./` as the prefix to indicate that the `basestats` is accessed in your current directory, because if there's no `./` prefix, it indicates that you are loading a package (e.g. `box::use(dpl = dplyr`). Hence, ensure your R working directory is set correctly relative to the `basestats` directory. If `basestats` is a subdirectory of your current working directory, use `bs = ./basestats`, with `bs` alias. 
+
+Here is an example case of using `t_test` from the `basestats` module:
 
 ```{r}
 box::use(bs = ./basestats)

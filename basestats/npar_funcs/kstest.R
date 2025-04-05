@@ -81,31 +81,53 @@ ks_test <- function(data, ..., y = NULL, alternative = "two.sided",
 
         if (has_functions) {
             # We'll handle functions separately
+
+            # For deparsing functions
+            deparse_fn <- function(fn) {
+                if (is.function(fn)) {
+                    fn_text <- deparse(fn)
+                    if (length(fn_text) > 3) {
+                        # Truncate long function definitions
+                        paste0(paste(fn_text[1:3], collapse = " "), "...")
+                    } else {
+                        paste(fn_text, collapse = " ")
+                    }
+                } else {
+                    "non-function"
+                }
+            }
+
+            # Create a pairwise grid for all combinations
+            if (is.function(y_eval)) {
+                # If y is a single function, apply it to all columns
+                fn_list <- list(y_eval)
+                fn_deparsed <- list(deparse_fn(y_eval))
+            } else if (is.list(y_eval)) {
+                # If y is a list of functions, use all functions for all columns
+                fn_list <- y_eval
+                fn_deparsed <- lapply(y_eval, deparse_fn)
+            }
+
+            # Create all combinations of columns and functions
+            combinations <- tidyr::expand_grid(
+                var_idx = seq_along(vars),
+                fn_idx = seq_along(fn_list)
+            )
+
             out <- data |>
                 group_modify(~ {
                     purrr::map_dfr(
-                        seq_along(vars), function(idx) {
-                            var <- vars[[idx]]
-                            var_name <- var_names[idx]
+                        seq_len(nrow(combinations)), function(combo_idx) {
+                            var_idx <- combinations$var_idx[combo_idx]
+                            fn_idx <- combinations$fn_idx[combo_idx]
+
+                            var <- vars[[var_idx]]
+                            var_name <- var_names[var_idx]
+                            fn <- fn_list[[fn_idx]]
+                            fn_text <- fn_deparsed[[fn_idx]]
 
                             # Extract the column data
                             x_data <- .x[[var_name]]
-
-                            # Determine which function to use
-                            if (is.function(y_eval)) {
-                                # Single function case
-                                fn <- y_eval
-                            } else if (is.list(y_eval) && !is.null(names(y_eval)) && var_name %in% names(y_eval)) {
-                                # Named list - match by name
-                                fn <- y_eval[[var_name]]
-                            } else if (is.list(y_eval)) {
-                                # Positional matching or cycling
-                                fn_idx <- ((idx - 1) %% length(y_eval)) + 1
-                                fn <- y_eval[[fn_idx]]
-                            } else {
-                                # Default to normal distribution
-                                fn <- pnorm
-                            }
 
                             # Create a proper distribution function that ks.test can use
                             dist_fn <- function(q) {
@@ -126,6 +148,7 @@ ks_test <- function(data, ..., y = NULL, alternative = "two.sided",
                                 test_type = "One-Sample",
                                 null_hyp = glue::glue("The sample `{var_name}` follows the theoretical distribution specified by CDF."),
                                 columns = var_name,
+                                cdf_function = fn_text,  # Store the deparsed function
                                 statistics = unname(test_result$statistic),
                                 pval = unname(round(test_result$p.value, digits = 3))
                             )
@@ -312,7 +335,7 @@ ks_test <- function(data, ..., y = NULL, alternative = "two.sided",
                                 )
                             )
 
-                            null_hyp <- "Approximately Normally Distributed"
+                            null_hyp <- glue::glue("`{deparse(.var)}` ~ N(0,1)")
                             test_type <- "One-Sample"
                         } else {
                             # y is a function
@@ -369,12 +392,9 @@ print.kstest <- function(x, ...) {
         cli$style_bold() |>
         cli$cat_line("\n\n")
 
-    # Check if we have group data - look for non-numeric columns that aren't part of the test variables
-    # has_groups <- !is.null(x$group_varnames)
-
     data |>
-        pmap(list) |>
-        iwalk(function (res, i) {
+        purrr::pmap(list) |>
+        purrr::iwalk(function (res, i) {
             var1 <- res$columns
 
             cat(glue::glue("{i}. {var1}"), "\n\n")
@@ -384,7 +404,19 @@ print.kstest <- function(x, ...) {
             cli$rule(center = null_text, line = " ") |>
                 cli$cat_line()
 
-            result_tbl <- tibble(
+            # Display CDF function if available
+            cat("\n")
+            if (!is.null(res$cdf_function)) {
+                cdf_func <- paste("CDF Function:", res$cdf_function)
+                cli$rule(center = cdf_func, line = " ") |>
+                    cli$cat_line()
+            } else if (!is.null(res$y_column)) {
+                y_col <- paste("Compared with:", res$y_column)
+                cli$rule(center = y_col, line = " ") |>
+                    cli$cat_line()
+            }
+
+            result_tbl <- tibble::tibble(
                 d_statistic = res$statistics,
                 `p-value` = res$pval
             )
