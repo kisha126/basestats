@@ -1,8 +1,8 @@
 box::use(
     tibble[tibble, rownames_to_column],
-    rlang[expr, quo],
     dplyr[select, summarise, group_vars, rename, filter, pick, group_split],
-    tidyselect[everything, all_of],
+    rlang[expr, quo, enquo],
+    tidyselect[eval_select, everything, all_of],
     tidyr[pivot_longer, unnest],
     purrr[pluck, iwalk, pmap],
     stats[aov],
@@ -11,26 +11,9 @@ box::use(
 )
 
 #' @export
-anova_test <- function(.data, columns = NULL, formula = NULL, ...) {
-    # Check if using formula approach
-    if (is.null(columns) && !is.null(formula)) {
-        out <- aov(formula = formula, data = .data, ...) |>
-            broom::tidy()
-
-        res <- list(
-            out = out,
-            grouping_var = group_vars(.data)
-        )
-
-        class(res) <- c("basestats", "ANOVA")
-        return(res)
-    }
-
-    # For column-based approach
-    new_data <- select(
-        .data,
-        all_of(tidyselect::eval_select(quo(columns), data = .data))
-    )
+anova_test <- function(.data, columns, ...) {
+    columns_quo <- enquo(columns)
+    new_data <- .data[, eval_select(columns_quo, data = .data), drop = FALSE]
 
     # Only worked with One-Way Anova
     out <- new_data |>
@@ -58,6 +41,20 @@ anova_test <- function(.data, columns = NULL, formula = NULL, ...) {
 
     class(res) <- c("basestats", "ANOVA")
     res
+}
+
+#' @export
+anova_test2 <- function(.data, formula, ...) {
+    out <- aov(formula = formula, data = .data, ...) |>
+        broom::tidy()
+
+    res <- list(
+        out = out,
+        grouping_var = group_vars(.data)
+    )
+
+    class(res) <- c("basestats", "ANOVA")
+    return(res)
 }
 
 print.ANOVA <- function(x, ...) {
